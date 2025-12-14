@@ -436,7 +436,7 @@ def page_viewer():
 
     selected_proc = st.selectbox("処置を選択してください", procedures, index=default_index)
 
-    # 【修正1の実施】セッションステートの初期化を関数の最初に移動
+    # 【修正1】セッションステートの初期化を関数の最初に移動し、選択された処置のキーを確実に準備
     if 'checklist_states' not in st.session_state:
         st.session_state['checklist_states'] = {}
     if selected_proc not in st.session_state['checklist_states']:
@@ -512,18 +512,22 @@ def page_viewer():
         if standard:
             st.warning("⚠️ 有効なデータがありません。標準手順を表示します。")
             dummy_content = f"### 【標準安全手順（{selected_proc}）】\n" + "\n".join([f"- ✅ {p}" for p in standard])
-            # このダミーコンテンツもst.checkboxとして処理する方が親切ですが、今回はデータがない場合の暫定表示としてmarkdownのままにします。
+            # データがない場合の暫定表示
             st.markdown(dummy_content)
         else:
             st.info("有効なデータがありません。サイドバーの「データ管理・更新」からデータを取得するか、PDFをアップロードしてください。")
 
-    # 【修正2の実施】リセットボタンを if content ブロックの外に移動
+    # 【最終修正2】リセットボタンにユニークキーを付与し、強制リセットロジックを適用
     st.markdown("---")
-    if st.button("この処置のチェック状態をリセット"):
-        if selected_proc in st.session_state['checklist_states']:
-            st.session_state['checklist_states'][selected_proc] = {}
-            st.info(f"「{selected_proc}」のチェック状態をリセットしました。")
-            st.rerun() # リセット後、画面を再描画してチェックボックスを未チェックにする
+    
+    # 選択されている処置名に基づいたユニークキーを設定
+    reset_key = f"reset_button_{selected_proc}"
+    
+    if st.button("この処置のチェック状態をリセット", key=reset_key):
+        # 該当する処置のチェック状態を空の辞書で上書きし、リセット
+        st.session_state['checklist_states'][selected_proc] = {}
+        st.info(f"✅ 「{selected_proc}」のチェック状態をリセットしました。画面を更新します。")
+        st.rerun() 
             
     # --- チェックボックス表示とセッションステートによる状態保持の終わり ---
 
@@ -634,3 +638,33 @@ def main():
     if os.path.exists(CHECKLISTS_PATH) and not st.session_state.get('initial_load_done', False):
         try:
             st.session_state['initial_load_done'] = True
+            
+            with open(CHECKLISTS_PATH, 'r', encoding='utf-8') as f:
+                content = json.load(f)
+                # データのサイズが非常に小さい場合は、古いデータ構造の可能性があるため再構築
+                if len(content.get('輸血', '')) < 100:
+                    st.warning("🔄 古いチェックリストデータが検出されました。最新のコードでリストを再生成します。")
+                    if os.path.exists(DATASET_PATH):  
+                        incidents = load_data()
+                        run_checklist_generation(incidents)
+                    else:
+                        run_checklist_generation([])
+
+        except (json.JSONDecodeError, FileNotFoundError):
+            if os.path.exists(DATASET_PATH):  
+                incidents = load_data()
+                run_checklist_generation(incidents)
+            else:
+                run_checklist_generation([])
+
+    st.sidebar.title("メニュー")
+    page = st.sidebar.radio("機能選択", ["チェックリストビューア", "データ管理・更新"])
+
+    if page == "チェックリストビューア":
+        page_viewer()
+    elif page == "データ管理・更新":
+        page_manager()
+
+
+if __name__ == "__main__":
+    main()
