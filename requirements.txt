@@ -1,5 +1,6 @@
 streamlit
 pandas
 requests
-beutifulsoup4
+beautifulsoup4
 pdfplumber
+
