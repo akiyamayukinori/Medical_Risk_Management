@@ -1,0 +1,5 @@
+streamlit
+pandas
+requests
+beutifulsoup4
+pdfplumber
