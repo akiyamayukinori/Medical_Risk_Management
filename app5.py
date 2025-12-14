@@ -29,7 +29,7 @@ PROCEDURES = {
     "患者確認・指導": ["患者", "確認", "指導", "説明", "同意", "アレルギー"],
     "採血": ["採血", "血液", "静脈", "血管", "穿刺"],
     "輸血": ["輸血", "血液製剤", "血液型", "ポンピング"],
-    "点滴・薬剤": ["点滴", "輸液", "IV", "薬剤投与", "シリンジポンプ", "輸液ポンプ", "抗凝固薬", "抗てんかん薬"], # 点滴に薬剤関連のキーワードを追加
+    "点滴・薬剤": ["点滴", "輸液", "IV", "薬剤投与", "シリンジポンプ", "輸液ポンプ", "抗凝固薬", "抗てんかん薬"],
     "手術": ["手術", "オペ", "術中", "麻酔", "執刀", "ガーゼカウント"],
     "内視鏡": ["内視鏡", "胃カメラ", "大腸", "スコープ", "CF", "GF"],
     "気管挿管": ["挿管", "気道", "換気", "チューブ", "抜管"],
@@ -42,7 +42,7 @@ PROCEDURES = {
 ACTION_KEYWORDS = [
     "確認", "照合", "二重", "固定", "緩める", "実施", "記録", "徹底", "維持", "変更",
     "抜針", "駆血帯", "止血", "部位", "選択", "アセスメント", "把握", "指示", "遵守",
-    "識別", "注意", "カウント", "測定", "比較", "観察" # 観察を追加
+    "識別", "注意", "カウント", "測定", "比較", "観察"
 ]
 
 # ノイズ除去キーワード (変更なし)
@@ -142,19 +142,17 @@ STANDARD_CHECKLIST_ITEMS: Dict[str, List[str]] = {
 
 
 # ==========================================
-# 2. ロジック関数群 (変更なし)
+# 2. ロジック関数群
 # ==========================================
 
 def load_data() -> List[Dict]:
     """インシデントデータセットを読み込む"""
     try:
-        # Streamlit Cloudではファイルが存在しない可能性がある
         if os.path.exists(DATASET_PATH):
             with open(DATASET_PATH, "r", encoding="utf-8", errors='ignore') as f:
                 return json.load(f)
         return []
     except Exception:
-        # 読み込みエラー時はファイルをリセット
         if os.path.exists(DATASET_PATH):
             os.remove(DATASET_PATH)
         return []
@@ -173,7 +171,6 @@ def save_data(data: List[Dict]):
 def load_checklists() -> Dict[str, str]:
     """チェックリストデータを読み込む (キャッシュ対象)"""
     try:
-        # 初回起動時などファイルがない場合は、空の辞書を返す
         if not os.path.exists(CHECKLISTS_PATH):
             return {}
             
@@ -187,7 +184,6 @@ def classify_procedure(text: str) -> str:
     """テキストから処置・手術の種類を分類する"""
     if not text:
         return "その他"
-    # PROCEDURESのキーをそのまま使う
     for proc, words in PROCEDURES.items():
         if any(w in text for w in words):
             return proc
@@ -195,9 +191,7 @@ def classify_procedure(text: str) -> str:
 
 
 def is_likely_garbled(text: str) -> bool:
-    """
-    テキストが文字化けしている可能性が高いか判定する。
-    """
+    """テキストが文字化けしている可能性が高いか判定する。"""
     if not text or len(text) < 5:
         return True
 
@@ -217,7 +211,6 @@ def is_likely_garbled(text: str) -> bool:
 def extract_action_items(prevention_text: str) -> List[str]:
     """具体的アクションに基づいてチェックリスト項目を抽出する"""
     actions = []
-    # 句点や改行で区切る
     sentences = re.split(r'[。\n]', prevention_text)
 
     for s in sentences:
@@ -226,7 +219,6 @@ def extract_action_items(prevention_text: str) -> List[str]:
         if len(s) < 5 or len(s) > 100: continue
         if any(noise in s for noise in NOISE_KEYWORDS): continue
 
-        # アクションキーワードが含まれる文を採用
         if any(action in s for action in ACTION_KEYWORDS):
             cleaned_s = re.sub(r'[、。]$', '', s)
             cleaned_s = re.sub(r'^[-\d\.\s・]+', '', cleaned_s).strip()
@@ -380,7 +372,7 @@ def run_checklist_generation(incidents: List[Dict]):
         # 1. 標準チェック項目 (★必ず表示★)
         standard_items = STANDARD_CHECKLIST_ITEMS.get(proc, [])
         if standard_items:
-            checklist.append(f"### 【標準安全手順（{proc}）】") # proc名を入れる
+            checklist.append(f"### 【標準安全手順（{proc}）】")
             # 確実な箇条書きのためのMarkdownリスト記号を追加
             for p in standard_items: checklist.append(f"- ✅ {p}")
 
@@ -424,16 +416,14 @@ def reset_system(limit_pdfs: int):
 # 3. UI (Streamlit Pages)
 # ==========================================
 
-# ★★★ page_viewer() 関数をチェックボックス実装版に置き換え ★★★
+# ★★★ page_viewer() 関数 (st.checkbox + st.session_stateによる状態保持) ★★★
 def page_viewer():
     st.title("📋 医療安全チェックリスト")
     
-    # 既存のチェックリスト読み込みロジック (変更なし)
     if not os.path.exists(CHECKLISTS_PATH):
         st.warning("⚠️ チェックリストファイルが生成されていません。データ管理・更新ページで生成してください。")
         checklists = {}
     else:
-        # load_checklistsは@st.cache_dataなので、キャッシュを利用
         checklists = load_checklists()
 
     procedures = sorted(list(STANDARD_CHECKLIST_ITEMS.keys()) + ["その他"])
@@ -450,22 +440,19 @@ def page_viewer():
 
     content = checklists.get(selected_proc)
 
-    # --- チェックボックス表示のための修正部分 ---
+    # --- チェックボックス表示とセッションステートによる状態保持 ---
 
     if content:
         # セッションステートの初期化
-        # 選択された処置ごとにチェックリストの状態を保存する辞書を初期化
         if 'checklist_states' not in st.session_state:
             st.session_state['checklist_states'] = {}
             
-        # 選択された処置のキーが存在しない場合、空の辞書で初期化
         if selected_proc not in st.session_state['checklist_states']:
             st.session_state['checklist_states'][selected_proc] = {}
 
         # 項目を解析するための変数
         lines = content.split('\n')
         item_count = 0
-        current_section = ""
         
         # チェック項目の総数とチェック済みの項目の数をカウント
         total_items = 0
@@ -484,8 +471,7 @@ def page_viewer():
                 st.markdown(line)
                 continue
                 
-            # 2. チェック項目 (リスト形式) の処理
-            # - ✅ (標準項目) も - □ (追加項目) もチェックボックス化の対象
+            # 2. チェック項目 (リスト形式: - ✅ または - □) の処理
             if line.startswith("- ✅ ") or line.startswith("- □ "):
                 # チェック項目のテキストを抽出
                 item_text = line.replace("- ✅ ", "").replace("- □ ", "").strip()
@@ -501,7 +487,7 @@ def page_viewer():
                 # チェックボックスを表示。keyを指定することで状態を保持
                 new_state = st.checkbox(item_text, value=is_checked, key=checkbox_key)
                 
-                # 状態が変化した場合、セッションステートを更新
+                # 状態が変化した場合、セッションステートを更新 (このロジックは冗長ですが、明示的に記述することで動作を保証)
                 if new_state != is_checked:
                     st.session_state['checklist_states'][selected_proc][checkbox_key] = new_state
                     
@@ -510,7 +496,7 @@ def page_viewer():
                     
                 item_count += 1
             
-            # 3. その他の行（空行など）の処理
+            # 3. その他の行（原因のリスト項目など）の処理
             elif line:
                 st.markdown(line)
         
@@ -527,14 +513,15 @@ def page_viewer():
                 st.session_state['checklist_states'][selected_proc] = {}
                 st.rerun() # リセット後、画面を再描画してチェックボックスを未チェックにする
             
-    # --- 修正部分の終わり ---
+    # --- チェックボックス表示とセッションステートによる状態保持の終わり ---
     
     else:
-        # データがない場合の既存ロジック (変更なし)
+        # データがない場合の既存ロジック
         standard = STANDARD_CHECKLIST_ITEMS.get(selected_proc)
         if standard:
             st.warning("⚠️ 有効なデータがありません。標準手順を表示します。")
             dummy_content = f"### 【標準安全手順（{selected_proc}）】\n" + "\n".join([f"- ✅ {p}" for p in standard])
+            # このダミーコンテンツもst.checkboxとして処理する方が親切ですが、今回はデータがない場合の暫定表示としてmarkdownのままにします。
             st.markdown(dummy_content)
         else:
             st.info("有効なデータがありません。サイドバーの「データ管理・更新」からデータを取得するか、PDFをアップロードしてください。")
@@ -553,10 +540,10 @@ def page_manager():
             st.cache_data.clear()
             incidents = reset_system(limit)
 
-            clean_incidents_count = len([i for i in incidents if not is_likely_garbled(i.get("description", ""))])
-            st.success(
-                f"完了しました。全 {len(incidents)} 件のデータを取得し、うち {clean_incidents_count} 件が有効な事例として解析されました。")
-            st.info("左のメニューから「チェックリストビューア」へ移動して確認してください。")
+        clean_incidents_count = len([i for i in incidents if not is_likely_garbled(i.get("description", ""))])
+        st.success(
+            f"完了しました。全 {len(incidents)} 件のデータを取得し、うち {clean_incidents_count} 件が有効な事例として解析されました。")
+        st.info("左のメニューから「チェックリストビューア」へ移動して確認してください。")
 
     st.markdown("---")
 
@@ -637,7 +624,7 @@ def page_manager():
 
 
 # ==========================================
-# 4. メイン実行部 (変更なし)
+# 4. メイン実行部
 # ==========================================
 def main():
     st.set_page_config(page_title="医療安全AI", layout="wide")
@@ -649,16 +636,17 @@ def main():
             
             with open(CHECKLISTS_PATH, 'r', encoding='utf-8') as f:
                 content = json.load(f)
+                # データのサイズが非常に小さい場合は、古いデータ構造の可能性があるため再構築
                 if len(content.get('輸血', '')) < 100:
                     st.warning("🔄 古いチェックリストデータが検出されました。最新のコードでリストを再生成します。")
-                    if os.path.exists(DATASET_PATH): 
+                    if os.path.exists(DATASET_PATH):  
                         incidents = load_data()
                         run_checklist_generation(incidents)
                     else:
                         run_checklist_generation([])
 
         except (json.JSONDecodeError, FileNotFoundError):
-            if os.path.exists(DATASET_PATH): 
+            if os.path.exists(DATASET_PATH):  
                 incidents = load_data()
                 run_checklist_generation(incidents)
             else:
