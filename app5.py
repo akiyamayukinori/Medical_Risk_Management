@@ -14,6 +14,7 @@ from datetime import datetime
 # ==========================================
 # 1. 設定・定数定義
 # ==========================================
+# ローカル実行時はファイルが作成されますが、Streamlit Cloudではセッションが切れると削除されます。
 DATASET_PATH = "incident_dataset.json"
 CHECKLISTS_PATH = "generated_checklists.json"
 
@@ -147,6 +148,7 @@ STANDARD_CHECKLIST_ITEMS: Dict[str, List[str]] = {
 def load_data() -> List[Dict]:
     """インシデントデータセットを読み込む"""
     try:
+        # Streamlit Cloudではファイルが存在しない可能性がある
         if os.path.exists(DATASET_PATH):
             with open(DATASET_PATH, "r", encoding="utf-8", errors='ignore') as f:
                 return json.load(f)
@@ -403,7 +405,7 @@ def run_checklist_generation(incidents: List[Dict]):
             checklists[proc] = "\n".join(checklist)
 
     # st.cache_dataをクリアし、新しいチェックリストを保存
-    st.cache_data.clear() 
+    st.cache_data.clear()  
     with open(CHECKLISTS_PATH, "w", encoding="utf-8") as f:
         json.dump(checklists, f, ensure_ascii=False, indent=2)
 
@@ -419,22 +421,23 @@ def reset_system(limit_pdfs: int):
 
 
 # ==========================================
-# 3. UI (Streamlit Pages) (変更なし)
+# 3. UI (Streamlit Pages)
 # ==========================================
 
+# ★★★ page_viewer() 関数をチェックボックス実装版に置き換え ★★★
 def page_viewer():
     st.title("📋 医療安全チェックリスト")
     
+    # 既存のチェックリスト読み込みロジック (変更なし)
     if not os.path.exists(CHECKLISTS_PATH):
         st.warning("⚠️ チェックリストファイルが生成されていません。データ管理・更新ページで生成してください。")
         checklists = {}
     else:
+        # load_checklistsは@st.cache_dataなので、キャッシュを利用
         checklists = load_checklists()
 
-    # PROCEDURESのキーではなく、STANDARD_CHECKLIST_ITEMSのキーをベースに選択肢を作成
     procedures = sorted(list(STANDARD_CHECKLIST_ITEMS.keys()) + ["その他"])
     
-    # 選択肢の初期値を調整
     default_index = 0
     if "脳神経外科管理" in procedures:
         default_index = procedures.index("脳神経外科管理")
@@ -447,10 +450,87 @@ def page_viewer():
 
     content = checklists.get(selected_proc)
 
+    # --- チェックボックス表示のための修正部分 ---
+
     if content:
-        # Markdown形式でレンダリング
-        st.markdown(content)
+        # セッションステートの初期化
+        # 選択された処置ごとにチェックリストの状態を保存する辞書を初期化
+        if 'checklist_states' not in st.session_state:
+            st.session_state['checklist_states'] = {}
+            
+        # 選択された処置のキーが存在しない場合、空の辞書で初期化
+        if selected_proc not in st.session_state['checklist_states']:
+            st.session_state['checklist_states'][selected_proc] = {}
+
+        # 項目を解析するための変数
+        lines = content.split('\n')
+        item_count = 0
+        current_section = ""
+        
+        # チェック項目の総数とチェック済みの項目の数をカウント
+        total_items = 0
+        checked_items = 0
+        
+        # チェックリストの表示と処理
+        for line in lines:
+            line = line.strip()
+
+            # 1. 見出しの処理 (H3/H4)
+            if line.startswith("### "):
+                current_section = line.replace("### ", "--- \n**") + "**"
+                st.markdown(current_section)
+                continue
+            if line.startswith("#### "):
+                st.markdown(line)
+                continue
+                
+            # 2. チェック項目 (リスト形式) の処理
+            # - ✅ (標準項目) も - □ (追加項目) もチェックボックス化の対象
+            if line.startswith("- ✅ ") or line.startswith("- □ "):
+                # チェック項目のテキストを抽出
+                item_text = line.replace("- ✅ ", "").replace("- □ ", "").strip()
+                
+                # ユニークなキーを生成 (処置名_セクション名_インデックス)
+                checkbox_key = f"chk_{selected_proc}_{item_count}"
+                total_items += 1
+
+                # st.checkboxを使用してチェックリストとして表示
+                # valueはセッションステートから取得。存在しない場合はFalse (未チェック)
+                is_checked = st.session_state['checklist_states'][selected_proc].get(checkbox_key, False)
+                
+                # チェックボックスを表示。keyを指定することで状態を保持
+                new_state = st.checkbox(item_text, value=is_checked, key=checkbox_key)
+                
+                # 状態が変化した場合、セッションステートを更新
+                if new_state != is_checked:
+                    st.session_state['checklist_states'][selected_proc][checkbox_key] = new_state
+                    
+                if new_state:
+                    checked_items += 1
+                    
+                item_count += 1
+            
+            # 3. その他の行（空行など）の処理
+            elif line:
+                st.markdown(line)
+        
+        # 進捗バーの表示
+        if total_items > 0:
+            progress_ratio = checked_items / total_items
+            st.progress(progress_ratio, text=f"**進捗状況: {checked_items} / {total_items} 項目完了**")
+        else:
+            st.info("このチェックリストにはチェック項目がありません。")
+
+        # 処置が完了したらチェック状態をリセットするボタン
+        if st.button("この処置のチェック状態をリセット"):
+            if selected_proc in st.session_state['checklist_states']:
+                st.session_state['checklist_states'][selected_proc] = {}
+                st.rerun() # リセット後、画面を再描画してチェックボックスを未チェックにする
+            
+    # --- 修正部分の終わり ---
+    
     else:
+        # データがない場合の既存ロジック (変更なし)
         standard = STANDARD_CHECKLIST_ITEMS.get(selected_proc)
         if standard:
             st.warning("⚠️ 有効なデータがありません。標準手順を表示します。")
