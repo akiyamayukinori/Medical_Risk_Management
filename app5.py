@@ -436,6 +436,12 @@ def page_viewer():
 
     selected_proc = st.selectbox("処置を選択してください", procedures, index=default_index)
 
+    # 【修正1の実施】セッションステートの初期化を関数の最初に移動
+    if 'checklist_states' not in st.session_state:
+        st.session_state['checklist_states'] = {}
+    if selected_proc not in st.session_state['checklist_states']:
+        st.session_state['checklist_states'][selected_proc] = {}
+        
     st.markdown(f"## {selected_proc} のチェックリスト")
 
     content = checklists.get(selected_proc)
@@ -443,13 +449,6 @@ def page_viewer():
     # --- チェックボックス表示とセッションステートによる状態保持 ---
 
     if content:
-        # セッションステートの初期化
-        if 'checklist_states' not in st.session_state:
-            st.session_state['checklist_states'] = {}
-            
-        if selected_proc not in st.session_state['checklist_states']:
-            st.session_state['checklist_states'][selected_proc] = {}
-
         # 項目を解析するための変数
         lines = content.split('\n')
         item_count = 0
@@ -507,14 +506,6 @@ def page_viewer():
         else:
             st.info("このチェックリストにはチェック項目がありません。")
 
-        # 処置が完了したらチェック状態をリセットするボタン
-        if st.button("この処置のチェック状態をリセット"):
-            if selected_proc in st.session_state['checklist_states']:
-                st.session_state['checklist_states'][selected_proc] = {}
-                st.rerun() # リセット後、画面を再描画してチェックボックスを未チェックにする
-            
-    # --- チェックボックス表示とセッションステートによる状態保持の終わり ---
-    
     else:
         # データがない場合の既存ロジック
         standard = STANDARD_CHECKLIST_ITEMS.get(selected_proc)
@@ -525,6 +516,16 @@ def page_viewer():
             st.markdown(dummy_content)
         else:
             st.info("有効なデータがありません。サイドバーの「データ管理・更新」からデータを取得するか、PDFをアップロードしてください。")
+
+    # 【修正2の実施】リセットボタンを if content ブロックの外に移動
+    st.markdown("---")
+    if st.button("この処置のチェック状態をリセット"):
+        if selected_proc in st.session_state['checklist_states']:
+            st.session_state['checklist_states'][selected_proc] = {}
+            st.info(f"「{selected_proc}」のチェック状態をリセットしました。")
+            st.rerun() # リセット後、画面を再描画してチェックボックスを未チェックにする
+            
+    # --- チェックボックス表示とセッションステートによる状態保持の終わり ---
 
 
 def page_manager():
@@ -633,33 +634,3 @@ def main():
     if os.path.exists(CHECKLISTS_PATH) and not st.session_state.get('initial_load_done', False):
         try:
             st.session_state['initial_load_done'] = True
-            
-            with open(CHECKLISTS_PATH, 'r', encoding='utf-8') as f:
-                content = json.load(f)
-                # データのサイズが非常に小さい場合は、古いデータ構造の可能性があるため再構築
-                if len(content.get('輸血', '')) < 100:
-                    st.warning("🔄 古いチェックリストデータが検出されました。最新のコードでリストを再生成します。")
-                    if os.path.exists(DATASET_PATH):  
-                        incidents = load_data()
-                        run_checklist_generation(incidents)
-                    else:
-                        run_checklist_generation([])
-
-        except (json.JSONDecodeError, FileNotFoundError):
-            if os.path.exists(DATASET_PATH):  
-                incidents = load_data()
-                run_checklist_generation(incidents)
-            else:
-                run_checklist_generation([])
-
-    st.sidebar.title("メニュー")
-    page = st.sidebar.radio("機能選択", ["チェックリストビューア", "データ管理・更新"])
-
-    if page == "チェックリストビューア":
-        page_viewer()
-    elif page == "データ管理・更新":
-        page_manager()
-
-
-if __name__ == "__main__":
-    main()
